@@ -1,0 +1,81 @@
+-- Quantity sold by item
+select item_id, sum(item_qty) as items_sold
+  from `dva-class-383114.fanshop.transactions`
+  where order_date <= '2019-02-07'
+  group by item_id
+  order by item_id;
+
+-- Quantity sold by item, including names
+  select a.item_id, a.item_name, sum(b.item_qty) as items_sold
+  from `dva-class-383114.fanshop.items`  as a
+  left join `dva-class-383114.fanshop.transactions` as b
+  on a.item_id = b.item_id
+  where order_date <= '2019-02-07'
+  group by a.item_id, a.item_name
+  order by a.item_id;
+
+-- Calculate item profit
+  CREATE OR REPLACE TABLE `dva-class-383114.fanshop.item_profit` AS
+  SELECT *, ROUND((retail_price-item_cost),2) AS profit_margin
+  FROM `dva-class-383114.fanshop.items`
+  ORDER BY item_id;
+
+-- Join transaction and item profit table
+  CREATE OR REPLACE TABLE `dva-class-383114.fanshop.transactions_full` AS
+  SELECT a.order_id, a.item_id, a.order_date, a.customer_id, b.item_name, b.item_type, b.item_cost, b.retail_price, b.profit_margin, a.item_qty FROM `dva-class-383114.fanshop.transactions` AS a
+  LEFT JOIN `dva-class-383114.fanshop.item_profit` AS b
+  ON a.item_id = b.item_id;
+
+-- Quantity sold by day
+  SELECT order_date, SUM(item_qty)
+  FROM `dva-class-383114.fanshop.transactions_full`
+  GROUP BY order_date
+  ORDER bY order_date;
+
+-- Revenue by month
+  SELECT EXTRACT(MONTH FROM order_date) as month_of_year, SUM(item_qty*retail_price) as total_revenue
+  FROM `dva-class-383114.fanshop.transactions_full`
+  GROUP BY month_of_year
+  ORDER BY month_of_year;
+
+-- Profit by month
+  SELECT EXTRACT(MONTH FROM order_date) as month_of_year, SUM(item_qty*profit_margin) as total_profits
+  FROM `dva-class-383114.fanshop.transactions_full`
+  GROUP BY month_of_year
+  ORDER BY month_of_year;
+
+-- Profit by item
+  SELECT item_id, item_name, ROUND(SUM(item_qty*profit_margin),2) as total_profits
+  FROM `dva-class-383114.fanshop.transactions_full`
+  GROUP BY item_id, item_name
+  ORDER BY total_profits DESC;
+
+-- Join transactions full with customer information
+  CREATE OR REPLACE TABLE `dva-class-383114.fanshop.transactions_full_customer_type` AS
+  SELECT a.order_id, a.item_id, a.order_date, a.customer_id, a.item_name, a.item_type, a.item_cost, a.retail_price, a.profit_margin, a.item_qty, b.age, b.gender, b.uva_affiliation FROM `dva-class-383114.fanshop.transactions_full` AS a
+  LEFT JOIN `dva-class-383114.fanshop.customers` AS b
+  ON a.customer_id = b.customer_id;
+
+-- Profitability by customer segment
+SELECT uva_affiliation, gender, ROUND(SUM(item_qty*profit_margin)) as total_profit
+  FROM `dva-class-383114.fanshop.transactions_full_customer_type`
+  GROUP BY uva_affiliation, gender
+  ORDER BY total_profit DESC;
+
+-- Profitability by top item id and customer segment
+  SELECT item_name, uva_affiliation, gender, ROUND(SUM(item_qty*profit_margin)) as total_profit
+  FROM `dva-class-383114.fanshop.transactions_full_customer_type`
+  WHERE item_name IN ("Shirt", "Hat", "Jacket")
+  GROUP BY item_name, uva_affiliation, gender
+  ORDER BY item_name, total_profit DESC;
+
+-- Profitability by top item and customer segment filtered
+WITH profits AS
+ (SELECT item_name, uva_affiliation, gender, ROUND(SUM(item_qty*profit_margin)) as total_profit
+  FROM `dva-class-383114.fanshop.transactions_full_customer_type`
+  WHERE item_name IN ("Shirt", "Hat", "Jacket")
+  GROUP BY item_name, uva_affiliation, gender)
+SELECT
+ item_name, uva_affiliation, gender, total_profit, RANK() OVER (PARTITION BY item_name ORDER BY total_profit DESC) as rank
+FROM profits
+QUALIFY rank = 1
